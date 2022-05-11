@@ -1,0 +1,4 @@
+*.html
+*.json
+config.yaml
+k8s-charter

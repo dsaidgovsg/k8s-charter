@@ -39,8 +39,14 @@ func wrapLineItems(values []int64) []opts.LineData {
 	return items
 }
 
+/// Returns (min, min%, max, max%, avg, avg%)
+func summarizeWithRef(values []int64, refValue int64) (int64, float64, int64, float64, int64, float64) {
+	minV, maxV, avgV := summarize(values)
+	return minV, overRefPct(minV, refValue), maxV, overRefPct(maxV, refValue), avgV, overRefPct(avgV, refValue)
+}
+
 /// Returns (min, max, avg)
-func summarize(values []int64, req int64) (int64, float64, int64, float64, int64, float64) {
+func summarize(values []int64) (int64, int64, int64) {
 	minV := int64(math.MaxInt64)
 	maxV := int64(math.MinInt64)
 	total := int64(0)
@@ -53,7 +59,11 @@ func summarize(values []int64, req int64) (int64, float64, int64, float64, int64
 
 	avgV := total / int64(len(values))
 
-	return minV, float64(minV) / float64(req) * 100, maxV, float64(maxV) / float64(req) * 100, avgV, float64(avgV) / float64(req) * 100
+	return minV, maxV, avgV
+}
+
+func overRefPct(base int64, refValue int64) float64 {
+	return float64(base) / float64(refValue) * 100
 }
 
 func min(x int64, y int64) int64 {
@@ -82,6 +92,18 @@ func avg(values []int64) int64 {
 	return sum(values) / int64(len(values))
 }
 
+func generateDefaultYAxisOpts(name string) opts.YAxis {
+	return opts.YAxis{
+		Name: name,
+		SplitLine: &opts.SplitLine{
+			Show: false,
+		},
+		AxisLabel: &opts.AxisLabel{
+			Inside: true,
+		},
+	}
+}
+
 func generateChartsOpts(others ...charts.GlobalOpts) []charts.GlobalOpts {
 	return append(
 		[]charts.GlobalOpts{
@@ -89,6 +111,8 @@ func generateChartsOpts(others ...charts.GlobalOpts) []charts.GlobalOpts {
 				Name: "tick",
 				Show: true,
 			}),
+			// Y-Axis currently overlaps with the Subtitle https://github.com/go-echarts/go-echarts/issues/233
+			charts.WithYAxisOpts(generateDefaultYAxisOpts("")),
 			charts.WithTooltipOpts(opts.Tooltip{
 				Show:      true,
 				TriggerOn: "mousemove",
@@ -122,9 +146,9 @@ type reqUsage struct {
 type Usage struct {
 	Cpus       []int64
 	Mems       []int64
+	Pods       []int64
 	RequestCpu int64
 	RequestMem int64
-	Pods       int64
 	StartTime  time.Time
 	Tick       int
 }
@@ -252,14 +276,14 @@ func main() {
 		page.PageTitle = outputPathParts[len(outputPathParts)-1]
 
 		for _, group := range groups {
-			groupCount := int64(0)
+			matchingPods := int64(0)
 			totalCpu := int64(0)
 			totalMem := int64(0)
 
 			for _, pm := range pms.Items {
 				for _, container := range pm.Containers {
 					if container.Name == group {
-						groupCount++
+						matchingPods++
 
 						cpu := container.Usage.Cpu().ScaledValue(resource.Milli)
 						mem := container.Usage.Memory().ScaledValue(resource.Mega)
@@ -272,9 +296,9 @@ func main() {
 				}
 			}
 
-			if groupCount > 0 {
-				avgCpu := totalCpu / groupCount
-				avgMem := totalMem / groupCount
+			if matchingPods > 0 {
+				avgCpu := totalCpu / matchingPods
+				avgMem := totalMem / matchingPods
 
 				requestUsage := requestUsages[group]
 
@@ -284,7 +308,6 @@ func main() {
 
 					groupUsage.RequestCpu = requestUsage.cpu
 					groupUsage.RequestMem = requestUsage.mem
-					groupUsage.Pods = groupCount
 					groupUsage.StartTime = startTime
 					groupUsage.Tick = interval
 				}
@@ -292,16 +315,24 @@ func main() {
 				groupUsage := groupUsages[group]
 				groupUsage.Cpus = append(groupUsage.Cpus, avgCpu)
 				groupUsage.Mems = append(groupUsage.Mems, avgMem)
+				groupUsage.Pods = append(groupUsage.Pods, matchingPods)
 
-				minCpu, minCpuPct, maxCpu, maxCpuPct, avgCpu, avgCpuPct := summarize(groupUsage.Cpus, requestUsage.cpu)
-				minMem, minMemPct, maxMem, maxMemPct, avgMem, avgMemPct := summarize(groupUsage.Mems, requestUsage.mem)
+				minCpu, minCpuPct, maxCpu, maxCpuPct, avgCpu, avgCpuPct := summarizeWithRef(groupUsage.Cpus, requestUsage.cpu)
+				minMem, minMemPct, maxMem, maxMemPct, avgMem, avgMemPct := summarizeWithRef(groupUsage.Mems, requestUsage.mem)
 
 				// Averaging across the group
-				subtitleFmt := "[pod(s): %v, start time: %v, tick: %vs] min: %v (%.2f%%), max: %v (%.2f%%), avg: %v (%.2f%%), k8s request: %v"
+				subtitleFmt := "[pods: %v, start time: %v, tick: %vs] min: %v (%.2f%%), max: %v (%.2f%%), avg: %v (%.2f%%), k8s request: %v"
+
+				// Format pod count
+				minPods, maxPods, _ := summarize(groupUsage.Pods)
+				podsStr := fmt.Sprintf("%v", minPods)
+				if minPods != maxPods {
+					podsStr = fmt.Sprintf("%v-%v", minPods, maxPods)
+				}
 
 				cpuLine := charts.NewLine()
 				cpuSubtitle := fmt.Sprintf(subtitleFmt,
-					groupCount, startTimeStr, interval,
+					podsStr, startTimeStr, interval,
 					minCpu, minCpuPct, maxCpu, maxCpuPct, avgCpu, avgCpuPct, groupUsage.RequestCpu)
 
 				cpuLine.SetGlobalOptions(
@@ -310,20 +341,17 @@ func main() {
 							Title:    fmt.Sprintf("%v (CPU [m])", group),
 							Subtitle: cpuSubtitle,
 						}),
-						// Y-Axis currently overlaps with the Subtitle https://github.com/go-echarts/go-echarts/issues/233
-						// charts.WithYAxisOpts(opts.YAxis{
-						// 	Name: "CPU [m]",
-						// 	Show: true,
-						// }),
 					)...,
 				)
+				cpuLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
 
 				cpuLine.SetXAxis(tickSeries).
-					AddSeries("CPU", wrapLineItems(groupUsage.Cpus))
+					AddSeries("Memory", wrapLineItems(groupUsage.Cpus), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("Pods", wrapLineItems(groupUsage.Pods), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
 
 				memLine := charts.NewLine()
 				memSubtitle := fmt.Sprintf(subtitleFmt,
-					groupCount, startTimeStr, interval,
+					podsStr, startTimeStr, interval,
 					minMem, minMemPct, maxMem, maxMemPct, avgMem, avgMemPct, groupUsage.RequestMem)
 
 				memLine.SetGlobalOptions(
@@ -332,15 +360,13 @@ func main() {
 							Title:    fmt.Sprintf("%v (Memory [Mi])", group),
 							Subtitle: memSubtitle,
 						}),
-						// charts.WithYAxisOpts(opts.YAxis{
-						// 	Name: "Memory [m]",
-						// 	Show: true,
-						// }),
 					)...,
 				)
+				memLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
 
 				memLine.SetXAxis(tickSeries).
-					AddSeries("Memory", wrapLineItems(groupUsage.Mems))
+					AddSeries("Memory", wrapLineItems(groupUsage.Mems), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("Pods", wrapLineItems(groupUsage.Pods), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
 
 				page.AddCharts(cpuLine).AddCharts(memLine)
 			}

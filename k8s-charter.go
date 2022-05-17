@@ -30,7 +30,7 @@ import (
 	"github.com/go-echarts/go-echarts/v2/templates"
 )
 
-func wrapLineItems(values []int64) []opts.LineData {
+func wrap(values []int64) []opts.LineData {
 	items := make([]opts.LineData, 0)
 
 	for i := 0; i < len(values); i++ {
@@ -39,10 +39,29 @@ func wrapLineItems(values []int64) []opts.LineData {
 	return items
 }
 
-/// Returns (min, min%, max, max%, avg, avg%)
-func summarizeWithRef(values []int64, refValue int64) (int64, float64, int64, float64, int64, float64) {
-	minV, maxV, avgV := summarize(values)
-	return minV, overRefPct(minV, refValue), maxV, overRefPct(maxV, refValue), avgV, overRefPct(avgV, refValue)
+func wrapFloats(values []float64) []opts.LineData {
+	items := make([]opts.LineData, 0)
+
+	for i := 0; i < len(values); i++ {
+		items = append(items, opts.LineData{Value: values[i]})
+	}
+	return items
+}
+
+func avgPctOverReq(value int64, pod int64, req int64) float64 {
+	return float64(value) / float64(pod) / float64(req) * 100
+}
+
+func avgPctsOverReq(values []int64, pods []int64, req int64) []float64 {
+	avgs := make([]float64, len(values))
+
+	// values and pods must have the same length
+	for i, value := range values {
+		pod := pods[i]
+		avgs[i] = avgPctOverReq(value, pod, req)
+	}
+
+	return avgs
 }
 
 /// Returns (min, max, avg)
@@ -62,11 +81,30 @@ func summarize(values []int64) (int64, int64, int64) {
 	return minV, maxV, avgV
 }
 
-func overRefPct(base int64, refValue int64) float64 {
-	return float64(base) / float64(refValue) * 100
+func summarizeFloats(values []float64) (float64, float64, float64) {
+	minV := float64(math.MaxFloat64)
+	maxV := float64(-math.MaxFloat64)
+	total := float64(0)
+
+	for _, v := range values {
+		total += v
+		minV = minFloat(minV, v)
+		maxV = maxFloat(maxV, v)
+	}
+
+	avgV := total / float64(len(values))
+
+	return minV, maxV, avgV
 }
 
 func min(x int64, y int64) int64 {
+	if x < y {
+		return x
+	}
+	return y
+}
+
+func minFloat(x float64, y float64) float64 {
 	if x < y {
 		return x
 	}
@@ -80,16 +118,11 @@ func max(x int64, y int64) int64 {
 	return y
 }
 
-func sum(values []int64) int64 {
-	total := int64(0)
-	for _, v := range values {
-		total += v
+func maxFloat(x float64, y float64) float64 {
+	if x > y {
+		return x
 	}
-	return total
-}
-
-func avg(values []int64) int64 {
-	return sum(values) / int64(len(values))
+	return y
 }
 
 func generateDefaultYAxisOpts(name string) opts.YAxis {
@@ -176,9 +209,6 @@ func main() {
 	jsonOutputPath := viper.GetString("jsonOutputPath")
 
 	// Set up chart
-
-	bar := charts.NewBar()
-	_ = bar
 
 	var kubeconfig *string
 	if home := homedir.HomeDir(); home != "" {
@@ -297,9 +327,6 @@ func main() {
 			}
 
 			if matchingPods > 0 {
-				avgCpu := totalCpu / matchingPods
-				avgMem := totalMem / matchingPods
-
 				requestUsage := requestUsages[group]
 
 				if _, ok := groupUsages[group]; !ok {
@@ -313,15 +340,16 @@ func main() {
 				}
 
 				groupUsage := groupUsages[group]
-				groupUsage.Cpus = append(groupUsage.Cpus, avgCpu)
-				groupUsage.Mems = append(groupUsage.Mems, avgMem)
+				groupUsage.Cpus = append(groupUsage.Cpus, totalCpu)
+				groupUsage.Mems = append(groupUsage.Mems, totalMem)
 				groupUsage.Pods = append(groupUsage.Pods, matchingPods)
 
-				minCpu, minCpuPct, maxCpu, maxCpuPct, avgCpu, avgCpuPct := summarizeWithRef(groupUsage.Cpus, requestUsage.cpu)
-				minMem, minMemPct, maxMem, maxMemPct, avgMem, avgMemPct := summarizeWithRef(groupUsage.Mems, requestUsage.mem)
+				minCpu, maxCpu, avgCpu := summarize(groupUsage.Cpus)
+				minMem, maxMem, avgMem := summarize(groupUsage.Mems)
 
 				// Averaging across the group
-				subtitleFmt := "[pods: %v, start time: %v, tick: %vs] min: %v (%.2f%%), max: %v (%.2f%%), avg: %v (%.2f%%), k8s request: %v"
+				subtitleFmt := "[pods: %v, start time: %v, tick: %vs] min: %v, max: %v, avg: %v, k8s request per pod: %v"
+				subtitlePctFmt := "[pods: %v, start time: %v, tick: %vs] min: %.2f%%, max: %.2f%%, avg: %.2f%%"
 
 				// Format pod count
 				minPods, maxPods, _ := summarize(groupUsage.Pods)
@@ -330,15 +358,17 @@ func main() {
 					podsStr = fmt.Sprintf("%v-%v", minPods, maxPods)
 				}
 
+				podsWrap := wrap(groupUsage.Pods)
+
+				// Total CPU chart generation
 				cpuLine := charts.NewLine()
-				cpuSubtitle := fmt.Sprintf(subtitleFmt,
-					podsStr, startTimeStr, interval,
-					minCpu, minCpuPct, maxCpu, maxCpuPct, avgCpu, avgCpuPct, groupUsage.RequestCpu)
+				cpuSubtitle := fmt.Sprintf(subtitleFmt, podsStr, startTimeStr, interval,
+					minCpu, maxCpu, avgCpu, groupUsage.RequestCpu)
 
 				cpuLine.SetGlobalOptions(
 					generateChartsOpts(
 						charts.WithTitleOpts(opts.Title{
-							Title:    fmt.Sprintf("%v (CPU [m])", group),
+							Title:    fmt.Sprintf("%v (Total CPU [m])", group),
 							Subtitle: cpuSubtitle,
 						}),
 					)...,
@@ -346,18 +376,40 @@ func main() {
 				cpuLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
 
 				cpuLine.SetXAxis(tickSeries).
-					AddSeries("Memory", wrapLineItems(groupUsage.Cpus), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
-					AddSeries("Pods", wrapLineItems(groupUsage.Pods), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
+					AddSeries("Memory", wrap(groupUsage.Cpus), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("Pods", podsWrap, charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
 
+				// CPU percentage chart generation
+				cpuPcts := avgPctsOverReq(groupUsage.Cpus, groupUsage.Pods, groupUsage.RequestCpu)
+				minCpuPct, maxCpuPct, avgCpuPct := summarizeFloats(cpuPcts)
+
+				cpuPctsLine := charts.NewLine()
+				cpuPctsSubtitle := fmt.Sprintf(subtitlePctFmt, podsStr, startTimeStr, interval,
+					minCpuPct, maxCpuPct, avgCpuPct)
+
+				cpuPctsLine.SetGlobalOptions(
+					generateChartsOpts(
+						charts.WithTitleOpts(opts.Title{
+							Title:    fmt.Sprintf("%v (CPU Average [%%])", group),
+							Subtitle: cpuPctsSubtitle,
+						}),
+					)...,
+				)
+				cpuPctsLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
+
+				cpuPctsLine.SetXAxis(tickSeries).
+					AddSeries("CPU %", wrapFloats(cpuPcts), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("Pods", podsWrap, charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
+
+				// Total Memory chart generation
 				memLine := charts.NewLine()
-				memSubtitle := fmt.Sprintf(subtitleFmt,
-					podsStr, startTimeStr, interval,
-					minMem, minMemPct, maxMem, maxMemPct, avgMem, avgMemPct, groupUsage.RequestMem)
+				memSubtitle := fmt.Sprintf(subtitleFmt, podsStr, startTimeStr, interval,
+					minMem, maxMem, avgMem, groupUsage.RequestMem)
 
 				memLine.SetGlobalOptions(
 					generateChartsOpts(
 						charts.WithTitleOpts(opts.Title{
-							Title:    fmt.Sprintf("%v (Memory [Mi])", group),
+							Title:    fmt.Sprintf("%v (Total Memory [Mi])", group),
 							Subtitle: memSubtitle,
 						}),
 					)...,
@@ -365,10 +417,33 @@ func main() {
 				memLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
 
 				memLine.SetXAxis(tickSeries).
-					AddSeries("Memory", wrapLineItems(groupUsage.Mems), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
-					AddSeries("Pods", wrapLineItems(groupUsage.Pods), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
+					AddSeries("Memory", wrap(groupUsage.Mems), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("Pods", podsWrap, charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
 
-				page.AddCharts(cpuLine).AddCharts(memLine)
+				// Memory percentage chart generation
+				memPcts := avgPctsOverReq(groupUsage.Mems, groupUsage.Pods, groupUsage.RequestMem)
+				minMemPct, maxMemPct, avgMemPct := summarizeFloats(memPcts)
+
+				memPctsLine := charts.NewLine()
+				memPctsSubtitle := fmt.Sprintf(subtitlePctFmt, podsStr, startTimeStr, interval,
+					minMemPct, maxMemPct, avgMemPct)
+
+				memPctsLine.SetGlobalOptions(
+					generateChartsOpts(
+						charts.WithTitleOpts(opts.Title{
+							Title:    fmt.Sprintf("%v (Memory Average [%%])", group),
+							Subtitle: memPctsSubtitle,
+						}),
+					)...,
+				)
+				memPctsLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
+
+				memPctsLine.SetXAxis(tickSeries).
+					AddSeries("Memory %", wrapFloats(memPcts), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("Pods", podsWrap, charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
+
+				page.AddCharts(cpuLine).AddCharts(cpuPctsLine).
+					AddCharts(memLine).AddCharts(memPctsLine)
 			}
 		}
 

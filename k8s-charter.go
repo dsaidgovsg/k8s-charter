@@ -376,7 +376,7 @@ func main() {
 				cpuLine.ExtendYAxis(generateDefaultYAxisOpts("Pods"))
 
 				cpuLine.SetXAxis(tickSeries).
-					AddSeries("Memory", wrap(groupUsage.Cpus), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
+					AddSeries("CPU", wrap(groupUsage.Cpus), charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 0})).
 					AddSeries("Pods", podsWrap, charts.WithLineChartOpts(opts.LineChart{YAxisIndex: 1}))
 
 				// CPU percentage chart generation

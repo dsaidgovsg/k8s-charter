@@ -6,26 +6,26 @@ on:
     branches:    
       - master
     tags:
-      - '*'
+      - "*"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: ['darwin', 'linux', 'windows']
-        goarch: ['amd64']
+        goos: ["darwin", "linux", "windows"]
+        goarch: ["amd64"]
     name: Building for ${{ matrix.goos }}_${{ matrix.goarch }}
     env:
-      GOOS: "${{ matrix.goos }}"
-      GOARCH: "${{ matrix.goarch }}"
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v3
 
       - name: Set up go version
         uses: actions/setup-go@v3
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
 
       - name: Set up go build cache
         uses: actions/cache@v3
@@ -47,11 +47,11 @@ jobs:
       - name: Set values
         id: values
         run: |-
-          is_tag=${{ startsWith(github.ref, 'refs/tags/') }}
+          is_tag="${{ startsWith(github.ref, 'refs/tags/') }}"
           if [[ "${is_tag}" == "true" ]]; then
-            tag=${GITHUB_REF/refs\/tags\//}
+            tag="${GITHUB_REF/refs\/tags\//}"
           else
-            tag=latest
+            tag="latest"
           fi
           bin_name="k8s-charter_${tag}_${GOOS}_${GOARCH}"
           if [[ "${GOOS}" == "windows" ]]; then

@@ -20,6 +20,7 @@ jobs:
       BIN_PREFIX: "k8s-charter"
       GOOS: "${{ matrix.goos }}"
       GOARCH: "${{ matrix.goarch }}"
+      BIN_NAME: "${BIN_PREFIX}_${GOOS}_${GOARCH}"
     steps:
       - uses: actions/checkout@v3
       - name: Setup go
@@ -41,10 +42,36 @@ jobs:
           key: ${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |-
             ${{ matrix.goos }}-${{ matrix.goarch }}-
-      - name: Build binary
+      - name: Set bin_name output and BIN_NAME env var
+        id: set_path
         run: |-
-          BIN_NAME="${BIN_PREFIX}_${GOOS}_${GOARCH}"
+          bin_name="${BIN_PREFIX}_${GOOS}_${GOARCH}"
           if [[ "${GOOS}" == "windows" ]]; then
-            BIN_NAME+=".exe"
+            bin_name+=".exe"
           fi
-          CGO_ENABLED=0 go build -ldflags "-s -w" -o "${BIN_NAME}"
+          echo "::set-output name=bin_name::${bin_name}"
+          echo "BIN_NAME=${BIN_NAME}" >> ${GITHUB_ENV}
+      - name: Build binary
+        run: CGO_ENABLED=0 go build -ldflags "-s -w" -o "${BIN_NAME}"
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # tag_name: ${{ github.ref }}
+          tag_name: latest
+          # release_name: ${{ github.ref }}
+          release_name: latest
+          draft: false
+          prerelease: false
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        # if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ steps.set_path.outputs.bin_name }}
+          asset_name: ${{ steps.set_path.outputs.bin_name }}
+          asset_content_type: application/octet-stream

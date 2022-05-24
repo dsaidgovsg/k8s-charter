@@ -1,5 +1,7 @@
 # `k8s-charter`
 
+[![CI Status](https://img.shields.io/github/workflow/status/dsaidgovsg/k8s-charter/ci/master?label=ci&logo=github&style=for-the-badge)](https://github.com/dsaidgovsg/k8s-charter/actions)
+
 Plots CPU and memory usage metrics charts based on your running pods.
 
 ## Prequisites

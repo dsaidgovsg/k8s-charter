@@ -42,7 +42,7 @@ MacOS. For Windows, the executable will have file extension `.exe`.
   groups:  # List of container/deployment names to group by
     - "name_of_container_or_deployment_1"
     - "name_of_container_or_deployment_2"
-  maxTicks: -1  # Max number of polls before stopping the program
+  maxTicks: 20  # Max number of polls before stopping the program, set -1 to run forever (CTRL-C to break)
   htmlOutputPath: "k8s-charter-{{date}}.html"  # html output, {{date}} to inject in datetime value
   jsonOutputPath: "k8s-charter-{{date}}.json"  # json output, {{date}} to inject in datetime value
   ```
@@ -80,22 +80,29 @@ You can simply open up the `.html` file to see the chart.
 
 ## How to read the chart
 
-The charts are zoomed based on the received values for CPU and Memory usage from the metrics server,
-and is not limited to the Request values for CPU and Memory based on the Deployment.
+Every valid group in `groups` based on `config.yaml` will generate 4 charts:
 
-The X-axis represents the tick, where one tick is equivalent to the `interval` value set in
+- Total CPU (millicores)
+- CPU Average (%)
+- Total Memory (Mi)
+- Memory Average (%)
+
+For the non-percentage based charts, the values are always the sum of all millicores (or memory).
+
+For the percentage based charts, the values are always the sum of all millicores (or memory),
+divided by (requested millicores or memory * number of running pods at that tick). It is possible
+to exceed 100% because the Kubernetes Request is not the Limit value.
+
+For every chart, there is one X-axis and two Y-axis series:
+
+- X-axis represents the tick, where one tick is equivalent to the `interval` value set in
 `config.yaml`.
+- Primary Y-axis represents the total value, or average percentage based on the chart type as
+  described above.
+- Secondary Y-axis represents the pod count, which can vary if the cluster has Horizontal Pod
+  Autoscaler (or any other form of autoscaling).
 
-The Y-axis represents the sum of CPU / Memory values across all grouped pods.
+In addition, each chart comes with the min, max, and the k8s request values.
 
-The line plotted on every tick on the chart is the sum value of CPU / Memory at that tick.
-
-The values found below the title of the chart consist of the following:
-
-- `min` and `max` values are the min and max sum values of CPU / Memory across all ticks
-- `avg` value is the sum of average values in every tick, divided by the number of ticks. The
-  average value in every tick is the sum of all values in that tick, divided by the number of pods
-  at that tick.
-- `k8s request` is the CPU / Memory Request value from the Kuberetes Deployment for the pod.
-
-All percentage values shown are the values divided by the Request value.
+If the reading at a particular tick is not obvious, you may mouseover on any dot on the chart; it
+should reveal the exact value in the form of `(tick): (value)` format.

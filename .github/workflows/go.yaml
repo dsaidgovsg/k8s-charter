@@ -17,10 +17,8 @@ jobs:
         goarch: ['amd64']
     name: Building for ${{ matrix.goos }}_${{ matrix.goarch }}
     env:
-      BIN_PREFIX: "k8s-charter"
       GOOS: "${{ matrix.goos }}"
       GOARCH: "${{ matrix.goarch }}"
-      BIN_NAME: "${BIN_PREFIX}_${GOOS}_${GOARCH}"
     steps:
       - uses: actions/checkout@v3
       - name: Setup go
@@ -43,44 +41,34 @@ jobs:
           restore-keys: |-
             ${{ matrix.goos }}-${{ matrix.goarch }}-
       - name: Set bin_name output
-        id: set_path
+        id: bin_name
         run: |-
-          bin_name="${BIN_PREFIX}_${GOOS}_${GOARCH}"
+          bin_name="k8s-charter_${GOOS}_${GOARCH}"
           if [[ "${GOOS}" == "windows" ]]; then
             bin_name+=".exe"
           fi
-          echo "::set-output name=bin_name::${bin_name}"
+          echo "::set-output name=value::${bin_name}"
       - name: Build binary
         run: |-
-          CGO_ENABLED=0 go build -ldflags "-s -w" -o "${{ steps.set_path.outputs.bin_name }}"
-          ls "${{ steps.set_path.outputs.bin_name }}"
-      - name: Create release and upload asset
+          CGO_ENABLED=0 go build -ldflags "-s -w" -o "${{ steps.bin_name.outputs.value }}"
+          ls "${{ steps.bin_name.outputs.value }}"
+      - name: Create release and upload asset to latest release
+        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: softprops/action-gh-release@v1
-        # if: startsWith(github.ref, 'refs/tags/')
         with:
           tag_name: latest
           name: latest
           files: |-
-            ${{ steps.set_path.outputs.bin_name }}
-      # - name: Create Release
-      #   id: create_release
-      #   uses: actions/create-release@v1
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     # tag_name: ${{ github.ref }}
-      #     tag_name: latest
-      #     # release_name: ${{ github.ref }}
-      #     release_name: latest
-      #     draft: false
-      #     prerelease: false
-      # - name: Upload Release Asset
-      #   uses: actions/upload-release-asset@v1
-      #   # if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     upload_url: ${{ steps.create_release.outputs.upload_url }}
-      #     asset_path: ./${{ steps.set_path.outputs.bin_name }}
-      #     asset_name: ${{ steps.set_path.outputs.bin_name }}
-      #     asset_content_type: application/octet-stream
+            ${{ steps.bin_name.outputs.value }}_latest
+      - name: Extract tag value if tag release
+        if: startsWith(github.ref, 'refs/tags/')
+        id: tag
+        run: echo ::set-output name=value::${GITHUB_REF/refs\/tags\//}
+      - name: Create release and upload asset to tag release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          files: |-
+            ${{ steps.bin_name.outputs.value }}_${{ steps.tag.outputs.value }}

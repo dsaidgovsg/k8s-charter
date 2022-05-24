@@ -67,6 +67,7 @@ jobs:
           ls "${{ steps.values.outputs.bin_name }}"
 
       - name: Create release if not exist and upload asset to tag release
+        if: "github.event_name == 'push'"
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.values.outputs.tag }}

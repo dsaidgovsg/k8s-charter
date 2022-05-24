@@ -1,0 +1,76 @@
+on:
+  pull_request:
+    branches:    
+      - master
+  push:
+    branches:    
+      - master
+    tags:
+      - "*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: ["darwin", "linux", "windows"]
+        goarch: ["amd64"]
+    name: Building for ${{ matrix.goos }}_${{ matrix.goarch }}
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up go version
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+
+      - name: Set up go build cache
+        uses: actions/cache@v3
+        with:
+          # In order:
+          # - Module download cache
+          # - Build cache (Linux)
+          # - Build cache (Mac)
+          # - Build cache (Windows)
+          path: |-
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+            ~\AppData\Local\go-build
+          key: ${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |-
+            ${{ matrix.goos }}-${{ matrix.goarch }}-
+
+      - name: Set values
+        id: values
+        run: |-
+          is_tag="${{ startsWith(github.ref, 'refs/tags/') }}"
+          if [[ "${is_tag}" == "true" ]]; then
+            tag="${GITHUB_REF/refs\/tags\//}"
+          else
+            tag="latest"
+          fi
+          bin_name="k8s-charter_${tag}_${GOOS}_${GOARCH}"
+          if [[ "${GOOS}" == "windows" ]]; then
+            bin_name+=".exe"
+          fi
+          echo "::set-output name=is_tag::${is_tag}"
+          echo "::set-output name=tag::${tag}"
+          echo "::set-output name=bin_name::${bin_name}"
+
+      - name: Build binary
+        run: |-
+          CGO_ENABLED=0 go build -ldflags "-s -w" -o "${{ steps.values.outputs.bin_name }}"
+          ls "${{ steps.values.outputs.bin_name }}"
+
+      - name: Create release if not exist and upload asset to tag release
+        if: "github.event_name == 'push'"
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.values.outputs.tag }}
+          name: ${{ steps.values.outputs.tag }}
+          files: |-
+            ${{ steps.values.outputs.bin_name }}

@@ -1,4 +1,4 @@
-module k8s-charter
+module github.com/dsaidgovsg/k8s-charter
 
 go 1.18
 

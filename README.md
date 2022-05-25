@@ -47,6 +47,24 @@ MacOS. For Windows, the executable will have file extension `.exe`.
   jsonOutputPath: "k8s-charter-{{date}}.json"  # json output, {{date}} to inject in datetime value
   ```
 
+## How to install
+
+### Method 1 - Download from release assets (recommended)
+
+Prebuilt statically linked binaries are released for every tag (and also every `master` commit in
+`nightly` tag if you do not mind latest working release).
+
+Head over to <https://github.com/dsaidgovsg/k8s-charter/releases> to get the binaries.
+
+### Method 2 - `go install`
+
+If you have `go` binary and do not mind compilation, you can also do
+
+```bash
+go install github.com/dsaidgovsg/k8s-charter@v1.0.0   # Or change to any other tagged version
+go install github.com/dsaidgovsg/k8s-charter@latest   # For latest binary
+```
+
 ## How to build
 
 Assuming you have `go` set-up, this is simply just
@@ -61,6 +79,13 @@ For a statically + smaller release build, you can do
 
 ```bash
 CGO_ENABLED=0 go build -ldflags "-s -w"
+```
+
+Optionally, if you want to override the application version `-version` value, you can do
+
+```bash
+go build -ldflags "-X main.appVersion=yourversion"
+./k8s-charter -version  # Should show "yourversion"
 ```
 
 ## How to run

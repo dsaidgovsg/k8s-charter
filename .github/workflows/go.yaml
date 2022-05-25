@@ -52,7 +52,7 @@ jobs:
           if [[ "${is_tag}" == "true" ]]; then
             tag="${GITHUB_REF/refs\/tags\//}"
           else
-            tag="latest"
+            tag="nightly"
           fi
           bin_name="k8s-charter_${tag}_${GOOS}_${GOARCH}"
           if [[ "${GOOS}" == "windows" ]]; then
@@ -64,7 +64,7 @@ jobs:
 
       - name: Build binary
         run: |-
-          CGO_ENABLED=0 go build -ldflags "-s -w" -o "${{ steps.values.outputs.bin_name }}"
+          CGO_ENABLED=0 go build -ldflags "-s -w -X main.appVersion=${{ steps.values.outputs.tag }}" -o "${{ steps.values.outputs.bin_name }}"
           ls "${{ steps.values.outputs.bin_name }}"
 
       - name: Create release if not exist and upload asset to tag release

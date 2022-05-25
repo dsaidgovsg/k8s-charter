@@ -30,6 +30,10 @@ import (
 	"github.com/go-echarts/go-echarts/v2/templates"
 )
 
+var (
+	appVersion string = "nightly"
+)
+
 func wrap(values []int64) []opts.LineData {
 	items := make([]opts.LineData, 0)
 
@@ -187,6 +191,22 @@ type Usage struct {
 }
 
 func main() {
+	// Set up application flags
+	version := flag.Bool("version", false, "prints application version")
+
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
+
+	if *version {
+		fmt.Println(appVersion)
+		os.Exit(0)
+	}
+
 	overridePageTpl()
 
 	// Read application config
@@ -207,16 +227,6 @@ func main() {
 	}
 	htmlOutputPath := viper.GetString("htmlOutputPath")
 	jsonOutputPath := viper.GetString("jsonOutputPath")
-
-	// Set up chart
-
-	var kubeconfig *string
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	}
-	flag.Parse()
 
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
